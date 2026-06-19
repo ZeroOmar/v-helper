@@ -53,6 +53,7 @@ All endpoints require the header `X-API-Key: <API_KEY>`.
 | `GET` | `/fs/ls` | Directory listing (`name`, `size_bytes`, `mtime_epoch`, `is_dir`) |
 | `POST` | `/fs/mkdir` | Create a directory: `{"name": "vol_name"}` |
 | `POST` | `/fs/rename` | Rename: `{"src": "old_name", "dst": "new_name"}` |
+| `POST` | `/fs/rm` | Delete a volume or file: `{"name": "vol_name"}` |
 
 All path inputs are validated to stay within `VOLUME`.
 

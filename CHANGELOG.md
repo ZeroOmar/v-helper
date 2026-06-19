@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **`POST /fs/rm` endpoint** — deletes a volume directory (recursive) or file inside `VOLUME`. Used by v-shipper when deleting a remote volume; running the delete through the API avoids the permission errors that arise when the rsync daemon user lacks write access to files owned by container users. Body: `{"name": "vol_name"}`. Returns `404` if the target doesn't exist, `500` on OS error.
+
 ## 0.2.1
 
 ### Fixed

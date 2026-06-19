@@ -105,6 +105,26 @@ def rename(body: RenameRequest, x_api_key: str = Header(default="")):
     return {"ok": True}
 
 
+class RmRequest(BaseModel):
+    name: str
+
+
+@app.post("/fs/rm")
+def rm(body: RmRequest, x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    target = _safe_child(body.name)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True}
+
+
 @app.exception_handler(Exception)
 async def _generic(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
