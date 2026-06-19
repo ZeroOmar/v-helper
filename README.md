@@ -1,6 +1,6 @@
-# docker-volume-container-rsync
+# V-Helper
 
-A volume container using rsync.
+A helper Container to work with V-Shipper and act as a remote Pool
 
 ## Usage
 

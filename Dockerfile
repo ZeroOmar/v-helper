@@ -19,4 +19,3 @@ ADD ./rsyncd.sh /etc/service/rsyncd/run
 RUN chmod 0755 /etc/service/rsyncd/run
 
 EXPOSE 873
-VOLUME /data
