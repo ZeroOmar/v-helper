@@ -1,4 +1,4 @@
-Release a new version of v-shipper.
+Release a new version of v-helper.
 
 ## Steps
 
@@ -6,11 +6,11 @@ Release a new version of v-shipper.
 
 If the user specified a version explicitly in their message, use that.
 
-Apply semver rules:
+Otherwise, check the latest tag and decide the bump by reviewing the diff (step 2 below). Apply semver rules:
 
-- **major** (x+1.0.0) — breaking changes: removed/renamed API endpoints, config keys removed or incompatibly changed, data migration required
-- **minor** (x.y+1.0) — new user-visible features added in a backwards-compatible way: new endpoints, new UI sections, new config options, new integrations
-- **patch** (x.y.z+1) — bug fixes, internal refactors, style/copy changes, dependency bumps, documentation only
+- **major** (x+1.0.0) — breaking changes: removed/renamed env vars or API endpoints, incompatible config changes
+- **minor** (x.y+1.0) — new user-visible features: new endpoints, new env vars, new services
+- **patch** (x.y.z+1) — bug fixes, internal refactors, documentation only
 
 When in doubt between two levels, pick the higher one. State your reasoning in one sentence before proceeding.
 
@@ -19,7 +19,7 @@ When in doubt between two levels, pick the higher one. State your reasoning in o
 Run both commands to understand what changed:
 ```bash
 git log $(git describe --tags --abbrev=0)..HEAD --oneline
-git diff $(git describe --tags --abbrev=0)..HEAD -- app/
+git diff $(git describe --tags --abbrev=0)..HEAD
 ```
 
 Group the changes into categories: Fixed, Security, Changed, Added, Removed.
@@ -27,8 +27,7 @@ Write clear human-readable entries — not just commit hashes.
 
 Then finalize the version bump decision from step 1 based on what you found.
 
-
-### 4. Update CHANGELOG.md
+### 3. Update CHANGELOG.md
 
 Prepend a new section after the `# Changelog` header line:
 
@@ -44,13 +43,12 @@ Prepend a new section after the `# Changelog` header line:
 
 Only include categories that have entries. Keep the style consistent with existing entries (bold lead phrase, em dash, explanation).
 
-### 5. Update README.md and other docs
+### 4. Update README.md and other docs
 
 Scan for any references to the old version number and update them.
-If new features, config options, or API endpoints were added, update the relevant sections.
-Review CLAUDE.md for anything that needs updating (key files, architecture patterns, known issues list).
+If new env vars, API endpoints, or services were added, update the relevant sections.
 
-### 6. Stage, commit, tag, push
+### 5. Stage, commit, tag, push
 
 ```bash
 git add -A

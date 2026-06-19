@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+### Fixed
+
+- **Quick-start example used wrong volume mount path** — the `docker run` example mounted the host path to itself (`/mnt/docker-volumes:/mnt/docker-volumes`) and set `VOLUME` to that same path, but the container's data path should be `/data`; corrected to `-v /mnt/docker-volumes:/data -e VOLUME=/data`
+
+### Changed
+
+- **Release skill updated** — `.claude/commands/release.md` was a copy of the v-shipper skill; rewritten for v-helper (correct diff scope, no `app/models.py` version field, updated semver rules)
+
 ## 0.2.0
 
 ### Added

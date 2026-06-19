@@ -11,8 +11,8 @@ A helper container for [v-shipper](https://github.com/ZeroOmar/v-shipper) that a
 docker run -d \
   -p 10873:873 \
   -p 8888:8888 \
-  -v /mnt/docker-volumes:/mnt/docker-volumes \
-  -e VOLUME=/mnt/docker-volumes \
+  -v /mnt/docker-volumes:/data \
+  -e VOLUME=/data \
   -e ALLOW='10.0.0.0/8' \
   -e READ_ONLY=false \
   -e VOLUME_NAME=docker-volumes \
