@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+- **HTTP control API** — FastAPI service on port `8888` (configurable via `API_PORT`) that v-shipper uses for operations rsync cannot perform: `GET /fs/disk` (real free/total bytes), `GET /fs/ls` (directory listing with modification timestamps), `POST /fs/mkdir` (create volume directory), `POST /fs/rename` (rename volume). All endpoints require `X-API-Key` auth; paths are validated to stay within `VOLUME`.
+- **`API_KEY` env var** — shared secret for the control API; if unset, all API requests return `503`.
+- **`API_PORT` env var** — API listen port (default `8888`).
+
 ## 0.1.1
 
 ### Fixed
