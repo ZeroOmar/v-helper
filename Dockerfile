@@ -1,4 +1,4 @@
-FROM phusion/baseimage:noble
+FROM phusion/baseimage:noble-1.0.2
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -16,6 +16,7 @@ RUN apt-get update && \
   mkdir /etc/service/rsyncd
 
 ADD ./rsyncd.sh /etc/service/rsyncd/run
+RUN chmod 0755 /etc/service/rsyncd/run
 
 EXPOSE 873
 VOLUME /data

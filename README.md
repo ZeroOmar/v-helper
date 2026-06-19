@@ -7,7 +7,7 @@ A volume container using rsync.
 First, you can launch a volume container exposing a volume with rsync.
 
 ```sh
-$ CID=$(docker run -d -p 10873:873 -v /tmp/:/data --name rsyncd metabrainz/docker-rsyncd)
+$ CID=$(docker run -d -p 10873:873 -v /tmp/:/data --name rsyncd ghcr.io/zeroomar/v-helper:latest)
 ```
 
 You can connect to rsync server inside a container like this:
@@ -35,7 +35,7 @@ In default, rsync server accepts a connection only from `192.168.0.0/16` and `17
 You can override via an environment variable like this:
 
 ```sh
-$ docker run -d -p 10873:873 -e ALLOW='10.0.0.0/8 x.x.x.x/y' nabeken/docker-volume-container-rsync
+$ docker run -d -p 10873:873 -e ALLOW='10.0.0.0/8 x.x.x.x/y' ghcr.io/zeroomar/v-helper:latest
 ```
 
 ## All Variables
