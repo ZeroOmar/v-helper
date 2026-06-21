@@ -49,8 +49,10 @@ All endpoints require the header `X-API-Key: <API_KEY>`.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Liveness check |
+| `GET` | `/version` | v-helper version → `{"version": "x.y.z"}` (shares a version line with v-shipper) |
 | `GET` | `/fs/disk` | Disk usage for `VOLUME` (`total_bytes`, `used_bytes`, `free_bytes`) |
 | `GET` | `/fs/ls` | Directory listing (`name`, `size_bytes`, `mtime_epoch`, `is_dir`) |
+| `GET` | `/fs/size` | Recursive byte total of a volume: `?name=vol_name` → `{"size_bytes": N}` (regular files only, symlinks excluded) |
 | `POST` | `/fs/mkdir` | Create a directory: `{"name": "vol_name"}` |
 | `POST` | `/fs/rename` | Rename: `{"src": "old_name", "dst": "new_name"}` |
 | `POST` | `/fs/rm` | Delete a volume or file: `{"name": "vol_name"}` |

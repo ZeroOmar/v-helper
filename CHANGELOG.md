@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.5
+
+Version realigned with v-shipper — the two now share a single version line and bump together on each release (jumps from `0.3.1` to match v-shipper `0.4.5`).
+
+### Added
+
+- **`GET /version` endpoint** — reports the v-helper version as `{"version": "x.y.z"}`. v-shipper reads it to detect version drift between the pair and surface "out of date" warnings.
+- **`GET /fs/size` endpoint** — returns the recursive byte total of a volume (`?name=<vol>` → `{"size_bytes": N}`), counting regular files only and excluding symlinks. This matches v-shipper's local `_get_dir_size` exactly, so local↔remote migration verification compares like for like instead of disagreeing over symlink byte counts. Used by v-shipper in place of the rsync `--list-only` size estimate when v-helper is configured.
+
 ## 0.3.1
 
 ### Fixed

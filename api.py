@@ -9,6 +9,10 @@ from pydantic import BaseModel
 
 app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
+# v-helper shares a version line with v-shipper — both bump together on each
+# coordinated release. v-shipper reads this via /version to flag mismatches.
+__version__ = "0.4.5"
+
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
 
@@ -36,6 +40,12 @@ def health(x_api_key: str = Header(default="")):
     return {"ok": True}
 
 
+@app.get("/version")
+def version(x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    return {"version": __version__}
+
+
 @app.get("/fs/disk")
 def disk(x_api_key: str = Header(default="")):
     _auth(x_api_key)
@@ -45,6 +55,31 @@ def disk(x_api_key: str = Header(default="")):
         "used_bytes": usage.used,
         "free_bytes": usage.free,
     }
+
+
+@app.get("/fs/size")
+def size(name: str, x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    target = _safe_child(name)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    # Recursive sum of regular-file bytes — identical semantics to v-shipper's
+    # volume_service._get_dir_size: symlinks are NOT followed and NOT counted,
+    # so a local↔remote migration verification compares like for like.
+    total = 0
+    try:
+        if target.is_dir():
+            for entry in target.rglob("*"):
+                try:
+                    if entry.is_file() and not entry.is_symlink():
+                        total += entry.stat().st_size
+                except OSError:
+                    pass
+        elif target.is_file() and not target.is_symlink():
+            total = target.stat().st_size
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"size_bytes": total}
 
 
 @app.get("/fs/ls")
