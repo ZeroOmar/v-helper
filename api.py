@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -116,12 +117,12 @@ def rm(body: RmRequest, x_api_key: str = Header(default="")):
     if not target.exists():
         raise HTTPException(status_code=404, detail="Not found")
     try:
-        if target.is_dir():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        # Identical delete primitive to v-shipper's volume_service.rm_rf:
+        # `rm -rf` runs as the container user (root) so it tolerates nested
+        # trees and mixed ownership/permissions that rmtree/unlink choke on.
+        subprocess.run(["rm", "-rf", "--", str(target)], check=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(status_code=500, detail=f"rm failed: {exc}")
     return {"ok": True}
 
 

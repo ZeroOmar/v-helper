@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+
+- **`POST /fs/rm` now tolerates mixed ownership and permissions** — the endpoint used `shutil.rmtree`/`unlink`, which raised `Permission denied` on volume trees containing files owned by other container users; it now uses `rm -rf` (running as root) so deletes succeed regardless of file ownership. This keeps the delete primitive identical to v-shipper's `volume_service.rm_rf`.
+
 ## 0.3.0
 
 ### Added
