@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+Coordinated release with v-shipper `0.5.1` (shared version line).
+
+### Fixed
+
+- **Pinned `docker==7.1.0`** — the previously unpinned `docker` install could resolve to `7.0.0`, which is incompatible with `requests>=2.32` and breaks `/docker/users` with "Not supported URL scheme http+docker". 7.1.0 restores the transport adapter.
+- **Silenced paramiko's `CryptographyDeprecationWarning` (TripleDES)** — filtered at `api.py` import; paramiko is pulled in transitively by the docker SDK.
+
 ## 0.5.0
 
 Coordinated release with v-shipper `0.5.0` (shared version line).
