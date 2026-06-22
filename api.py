@@ -19,7 +19,7 @@ app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
 # v-helper shares a version line with v-shipper — both bump together on each
 # coordinated release. v-shipper reads this via /version to flag mismatches.
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
@@ -263,10 +263,12 @@ def chown(body: ChownRequest, x_api_key: str = Header(default="")):
 def docker_users(x_api_key: str = Header(default="")):
     """Map each volume under VOLUME to the containers using it: {volume: [{name, status}]}.
 
-    A container uses a volume if any of its mount sources equals the volume's host path
-    (DOCKER_VOLUMES_HOST_PATH/<name>) or sits under it — covers sub-folder bind mounts
-    and local-driver volumes whose mountpoint lives there. Returns {} (never errors) if
-    the docker package or socket is unavailable.
+    A container uses a volume if any of its mount host-paths equals the volume's host
+    path (DOCKER_VOLUMES_HOST_PATH/<name>) or sits under it — covers sub-folder bind
+    mounts and bind-backed named volumes. Bind mounts use the mount's `Source`;
+    named-volume mounts are resolved to their real device/mountpoint (a volume mount's
+    `Source` is the managed mountpoint, not the `driver_opts: device` path). Returns {}
+    (never errors) if the docker package or socket is unavailable.
     """
     _auth(x_api_key)
     result = {}
@@ -279,10 +281,29 @@ def docker_users(x_api_key: str = Header(default="")):
     try:
         import docker
         client = docker.from_env()
+
+        # Map named volume -> real host path (driver_opts device, else managed mountpoint).
+        vol_real = {}
+        try:
+            for v in client.volumes.list():
+                attrs = v.attrs or {}
+                opts = attrs.get("Options") or {}
+                vol_real[v.name] = opts.get("device") or attrs.get("Mountpoint")
+        except Exception:
+            pass
+
         containers = []
         for c in client.containers.list(all=True):
-            sources = [m.get("Source") for m in (c.attrs.get("Mounts") or []) if m.get("Source")]
+            sources = []
+            for m in (c.attrs.get("Mounts") or []):
+                if m.get("Type") == "volume":
+                    src = vol_real.get(m.get("Name")) or m.get("Source")
+                else:
+                    src = m.get("Source")
+                if src:
+                    sources.append(src)
             containers.append({"name": c.name, "status": c.status, "sources": sources})
+
         for name in names:
             host_path = f"{_DOCKER_VOLUMES_HOST_PATH}/{name}"
             prefix = host_path + "/"

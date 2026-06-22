@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+Coordinated release with v-shipper `0.5.2` (shared version line).
+
+### Fixed
+
+- **`/docker/users` missed bind-backed named volumes** — the scan matched only on each mount's `Source`, which for a named volume is the managed mountpoint, not the `driver_opts: device` path. Named volumes are now resolved to their real host path (device option, else mountpoint) before matching, so containers using `driver: local` + `o: bind` volumes are detected, not just raw bind mounts.
+
 ## 0.5.1
 
 Coordinated release with v-shipper `0.5.1` (shared version line).
