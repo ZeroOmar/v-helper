@@ -19,7 +19,7 @@ app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
 # v-helper shares a version line with v-shipper — both bump together on each
 # coordinated release. v-shipper reads this via /version to flag mismatches.
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
@@ -27,6 +27,10 @@ _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
 # the host namespace, which differs from VOLUME inside this container. Falls back to
 # VOLUME (identity) when unset.
 _DOCKER_VOLUMES_HOST_PATH = os.environ.get("DOCKER_VOLUMES_HOST_PATH", str(_VOLUME)).rstrip("/")
+# Grace period (seconds) for `docker stop` before SIGKILL. Generous default so
+# containers that shut down slowly aren't killed mid-flush. v-shipper sizes its
+# HTTP timeout above this so a slow-but-successful stop isn't read as a failure.
+_STOP_TIMEOUT = int(os.environ.get("CONTAINER_STOP_TIMEOUT", "120"))
 
 # Octal mode (3-4 digits, each 0-7) and a single user/group token (numeric id or a
 # name). Kept identical to v-shipper's validate_mode / validate_owner_token so input
@@ -314,6 +318,47 @@ def docker_users(x_api_key: str = Header(default="")):
         print(f"[WARNING] docker_users failed: {exc}", flush=True)
 
     return result
+
+
+class ContainerAction(BaseModel):
+    name: str
+
+
+def _docker_client():
+    """Return a docker client, or 503 if the package/socket is unavailable.
+
+    Mirrors the graceful degradation of /docker/users: the import and socket are
+    optional, so a host without Docker fails clearly instead of crashing.
+    """
+    try:
+        import docker
+        return docker.from_env()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
+
+
+@app.post("/docker/container/stop")
+def container_stop(body: ContainerAction, x_api_key: str = Header(default="")):
+    """Stop a container by name, waiting up to CONTAINER_STOP_TIMEOUT for a clean exit."""
+    _auth(x_api_key)
+    client = _docker_client()
+    try:
+        client.containers.get(body.name).stop(timeout=_STOP_TIMEOUT)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"stop failed: {exc}")
+    return {"ok": True}
+
+
+@app.post("/docker/container/start")
+def container_start(body: ContainerAction, x_api_key: str = Header(default="")):
+    """Start a container by name."""
+    _auth(x_api_key)
+    client = _docker_client()
+    try:
+        client.containers.get(body.name).start()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"start failed: {exc}")
+    return {"ok": True}
 
 
 @app.exception_handler(Exception)

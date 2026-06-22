@@ -40,6 +40,7 @@ docker run -d \
 | `API_KEY` | *(required)* | Shared secret; all API requests must include `X-API-Key: <value>` |
 | `API_PORT` | `8888` | Port for the HTTP control API |
 | `DOCKER_VOLUMES_HOST_PATH` | `VOLUME` | Host base path that `VOLUME` is mounted from. Used by `/docker/users` to match container mounts to volumes when the host path differs from the in-container path. |
+| `CONTAINER_STOP_TIMEOUT` | `120` | Grace period (seconds) given to a container to shut down cleanly on `/docker/container/stop` before Docker sends SIGKILL. |
 
 If `API_KEY` is not set, all API requests return `503`.
 
@@ -63,6 +64,8 @@ All endpoints require the header `X-API-Key: <API_KEY>`.
 | `POST` | `/fs/chmod` | `chmod -R <mode>` on a volume: `{"name": "vol_name", "mode": "755"}` |
 | `POST` | `/fs/chown` | `chown -R <user:group>` on a volume: `{"name": "vol_name", "owner": "1000:1000"}` |
 | `GET` | `/docker/users` | Map each volume to the containers using it: `{volume: [{name, status}]}` (needs the Docker socket; returns `{}` otherwise) |
+| `POST` | `/docker/container/stop` | Stop a container by name: `{"name": "container_name"}` (waits up to `CONTAINER_STOP_TIMEOUT`s for graceful shutdown; needs the Docker socket, else `503`) |
+| `POST` | `/docker/container/start` | Start a container by name: `{"name": "container_name"}` (needs the Docker socket, else `503`) |
 
 All path inputs are validated to stay within `VOLUME`.
 

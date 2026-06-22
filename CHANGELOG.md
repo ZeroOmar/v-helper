@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+Coordinated release with v-shipper `0.6.0` (shared version line).
+
+### Added
+
+- **`POST /docker/container/stop` and `POST /docker/container/start`** — stop or start a container by name, backing v-shipper's "stop/start containers around an operation" feature for remote pools. `stop` waits up to `CONTAINER_STOP_TIMEOUT` seconds (env var, default `120`) for a graceful shutdown before Docker sends SIGKILL. Both degrade with a clear `503` when the Docker package or socket is unavailable, matching `/docker/users`.
+
 ## 0.5.2
 
 Coordinated release with v-shipper `0.5.2` (shared version line).
