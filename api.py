@@ -1,4 +1,7 @@
+import grp
 import os
+import pwd
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,10 +14,36 @@ app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
 # v-helper shares a version line with v-shipper — both bump together on each
 # coordinated release. v-shipper reads this via /version to flag mismatches.
-__version__ = "0.4.5"
+__version__ = "0.5.0"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
+# Host-namespace base path that VOLUME is mounted from. Docker reports mount sources in
+# the host namespace, which differs from VOLUME inside this container. Falls back to
+# VOLUME (identity) when unset.
+_DOCKER_VOLUMES_HOST_PATH = os.environ.get("DOCKER_VOLUMES_HOST_PATH", str(_VOLUME)).rstrip("/")
+
+# Octal mode (3-4 digits, each 0-7) and a single user/group token (numeric id or a
+# name). Kept identical to v-shipper's validate_mode / validate_owner_token so input
+# is rejected the same way at both ends. The owner spec is two tokens joined by ':'.
+_MODE_RE = re.compile(r"^[0-7]{3,4}$")
+_OWNER_TOKEN_RE = re.compile(r"^[0-9]+$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$")
+
+
+def _name_for_uid(uid: int) -> str:
+    """Resolve a uid to a username, falling back to the numeric string."""
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return str(uid)
+
+
+def _name_for_gid(gid: int) -> str:
+    """Resolve a gid to a group name, falling back to the numeric string."""
+    try:
+        return grp.getgrgid(gid).gr_name
+    except KeyError:
+        return str(gid)
 
 
 def _auth(x_api_key: str = ""):
@@ -159,6 +188,106 @@ def rm(body: RmRequest, x_api_key: str = Header(default="")):
     except subprocess.CalledProcessError as exc:
         raise HTTPException(status_code=500, detail=f"rm failed: {exc}")
     return {"ok": True}
+
+
+@app.get("/fs/stat")
+def stat_(name: str, x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    target = _safe_child(name)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    st = target.stat()
+    return {
+        "mode": oct(st.st_mode)[-3:],
+        "uid": st.st_uid,
+        "gid": st.st_gid,
+        "user": _name_for_uid(st.st_uid),
+        "group": _name_for_gid(st.st_gid),
+    }
+
+
+class ChmodRequest(BaseModel):
+    name: str
+    mode: str
+
+
+@app.post("/fs/chmod")
+def chmod(body: ChmodRequest, x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    target = _safe_child(body.name)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _MODE_RE.match(body.mode):
+        raise HTTPException(status_code=400, detail="Invalid mode")
+    # subprocess with list args (no shell) — chmod -R, identical primitive to
+    # v-shipper's local change_permissions so local and remote behave the same.
+    result = subprocess.run(
+        ["chmod", "-R", body.mode, str(target)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"chmod failed: {result.stderr.strip()}")
+    return {"ok": True, "command": f"chmod -R {body.mode}", "output": result.stderr.strip()}
+
+
+class ChownRequest(BaseModel):
+    name: str
+    owner: str
+
+
+@app.post("/fs/chown")
+def chown(body: ChownRequest, x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    target = _safe_child(body.name)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    # owner is a "user:group" spec; validate each token (numeric id or name).
+    parts = body.owner.split(":")
+    if len(parts) != 2 or not all(_OWNER_TOKEN_RE.match(p) for p in parts):
+        raise HTTPException(status_code=400, detail="Invalid owner spec")
+    result = subprocess.run(
+        ["chown", "-R", body.owner, str(target)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"chown failed: {result.stderr.strip()}")
+    return {"ok": True, "command": f"chown -R {body.owner}", "output": result.stderr.strip()}
+
+
+@app.get("/docker/users")
+def docker_users(x_api_key: str = Header(default="")):
+    """Map each volume under VOLUME to the containers using it: {volume: [{name, status}]}.
+
+    A container uses a volume if any of its mount sources equals the volume's host path
+    (DOCKER_VOLUMES_HOST_PATH/<name>) or sits under it — covers sub-folder bind mounts
+    and local-driver volumes whose mountpoint lives there. Returns {} (never errors) if
+    the docker package or socket is unavailable.
+    """
+    _auth(x_api_key)
+    result = {}
+    try:
+        names = [e.name for e in _VOLUME.iterdir() if e.is_dir() and not e.name.startswith(".")]
+    except OSError:
+        return result
+    result = {name: [] for name in names}
+
+    try:
+        import docker
+        client = docker.from_env()
+        containers = []
+        for c in client.containers.list(all=True):
+            sources = [m.get("Source") for m in (c.attrs.get("Mounts") or []) if m.get("Source")]
+            containers.append({"name": c.name, "status": c.status, "sources": sources})
+        for name in names:
+            host_path = f"{_DOCKER_VOLUMES_HOST_PATH}/{name}"
+            prefix = host_path + "/"
+            for c in containers:
+                if any(s == host_path or s.startswith(prefix) for s in c["sources"]):
+                    result[name].append({"name": c["name"], "status": c["status"]})
+    except Exception as exc:
+        print(f"[WARNING] docker_users failed: {exc}", flush=True)
+
+    return result
 
 
 @app.exception_handler(Exception)

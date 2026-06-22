@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+Coordinated release with v-shipper `0.5.0` (shared version line).
+
+### Added
+
+- **`GET /fs/stat` endpoint** — returns a volume folder's current ownership and mode: `{mode, uid, gid, user, group}` (names resolved via `pwd`/`grp`, falling back to the numeric id). v-shipper uses it to pre-fill the permissions modal for remote volumes.
+- **`POST /fs/chmod` endpoint** — runs `chmod -R <mode>` on a volume (`{name, mode}`; octal mode validated `^[0-7]{3,4}$`). Returns `{ok, command, output}`; `500` with stderr on failure.
+- **`POST /fs/chown` endpoint** — runs `chown -R <user:group>` on a volume (`{name, owner}`; each token validated as a numeric id or Unix name). Returns `{ok, command, output}`. Both use list-arg subprocess calls (no shell) — no injection surface.
+- **`GET /docker/users` endpoint** — maps each volume under `VOLUME` to the containers using it: `{volume: [{name, status}]}`. Matches container mount sources against each volume's host path (`DOCKER_VOLUMES_HOST_PATH/<name>`, equal or sub-path), covering bind mounts and local-driver volumes. Returns `{}` (never errors) if the `docker` package or socket is unavailable. Requires the Docker socket mounted into the container and the new `DOCKER_VOLUMES_HOST_PATH` env (host base path that `VOLUME` is mounted from; defaults to `VOLUME`). The `docker` Python package is now installed in the image.
+
 ## 0.4.5
 
 Version realigned with v-shipper — the two now share a single version line and bump together on each release (jumps from `0.3.1` to match v-shipper `0.4.5`).

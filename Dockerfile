@@ -20,7 +20,7 @@ RUN chmod 0755 /etc/service/rsyncd/run
 
 RUN apt-get update && \
   DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends python3 python3-pip && \
-  pip3 install --break-system-packages fastapi uvicorn && \
+  pip3 install --break-system-packages fastapi uvicorn docker && \
   apt-get clean autoclean && \
   apt-get autoremove -y && \
   rm -rf /var/lib/{apt,dpkg,cache,log}/ && \

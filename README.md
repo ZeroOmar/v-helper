@@ -39,8 +39,11 @@ docker run -d \
 |---|---|---|
 | `API_KEY` | *(required)* | Shared secret; all API requests must include `X-API-Key: <value>` |
 | `API_PORT` | `8888` | Port for the HTTP control API |
+| `DOCKER_VOLUMES_HOST_PATH` | `VOLUME` | Host base path that `VOLUME` is mounted from. Used by `/docker/users` to match container mounts to volumes when the host path differs from the in-container path. |
 
 If `API_KEY` is not set, all API requests return `503`.
+
+To use `/docker/users`, also mount the Docker socket into the container (e.g. `-v /var/run/docker.sock:/var/run/docker.sock:ro`). Without it, the endpoint returns `{}`.
 
 ## API Endpoints
 
@@ -53,9 +56,13 @@ All endpoints require the header `X-API-Key: <API_KEY>`.
 | `GET` | `/fs/disk` | Disk usage for `VOLUME` (`total_bytes`, `used_bytes`, `free_bytes`) |
 | `GET` | `/fs/ls` | Directory listing (`name`, `size_bytes`, `mtime_epoch`, `is_dir`) |
 | `GET` | `/fs/size` | Recursive byte total of a volume: `?name=vol_name` → `{"size_bytes": N}` (regular files only, symlinks excluded) |
+| `GET` | `/fs/stat` | Current ownership/mode of a volume: `?name=vol_name` → `{"mode", "uid", "gid", "user", "group"}` |
 | `POST` | `/fs/mkdir` | Create a directory: `{"name": "vol_name"}` |
 | `POST` | `/fs/rename` | Rename: `{"src": "old_name", "dst": "new_name"}` |
 | `POST` | `/fs/rm` | Delete a volume or file: `{"name": "vol_name"}` |
+| `POST` | `/fs/chmod` | `chmod -R <mode>` on a volume: `{"name": "vol_name", "mode": "755"}` |
+| `POST` | `/fs/chown` | `chown -R <user:group>` on a volume: `{"name": "vol_name", "owner": "1000:1000"}` |
+| `GET` | `/docker/users` | Map each volume to the containers using it: `{volume: [{name, status}]}` (needs the Docker socket; returns `{}` otherwise) |
 
 All path inputs are validated to stay within `VOLUME`.
 
