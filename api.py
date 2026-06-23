@@ -19,7 +19,7 @@ app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
 # v-helper shares a version line with v-shipper — both bump together on each
 # coordinated release. v-shipper reads this via /version to flag mismatches.
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()

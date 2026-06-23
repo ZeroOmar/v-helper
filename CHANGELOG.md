@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+Coordinated release with v-shipper `0.7.0` (shared version line). No functional change in v-helper this release; the bump keeps the two version lines aligned so v-shipper does not flag a connected helper as out of date.
+
 ## 0.6.0
 
 Coordinated release with v-shipper `0.6.0` (shared version line).
