@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import warnings
 from pathlib import Path
+from typing import Optional
 
 # Silence paramiko's noisy TripleDES CryptographyDeprecationWarning (pulled in
 # transitively by the docker SDK used in /docker/users).
@@ -17,9 +18,9 @@ from pydantic import BaseModel
 
 app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
-# v-helper shares a version line with v-shipper — both bump together on each
-# coordinated release. v-shipper reads this via /version to flag mismatches.
-__version__ = "0.7.0"
+# v-helper versions independently of v-shipper. v-shipper reads this via
+# /version and compares it against the latest v-helper GitHub release.
+__version__ = "0.8.0"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
@@ -322,6 +323,11 @@ def docker_users(x_api_key: str = Header(default="")):
 
 class ContainerAction(BaseModel):
     name: str
+    # Optional per-request grace period (seconds) for `docker stop`. v-shipper sends
+    # the pool's configured container_stop_timeout here so the grace period actually
+    # applied remotely matches the local behaviour; absent (older v-shipper) falls
+    # back to the CONTAINER_STOP_TIMEOUT env default.
+    timeout: Optional[int] = None
 
 
 def _docker_client():
@@ -339,11 +345,13 @@ def _docker_client():
 
 @app.post("/docker/container/stop")
 def container_stop(body: ContainerAction, x_api_key: str = Header(default="")):
-    """Stop a container by name, waiting up to CONTAINER_STOP_TIMEOUT for a clean exit."""
+    """Stop a container by name, waiting for a clean exit up to the request's
+    timeout (the caller's configured grace period) or CONTAINER_STOP_TIMEOUT."""
     _auth(x_api_key)
     client = _docker_client()
+    timeout = body.timeout if (body.timeout and body.timeout > 0) else _STOP_TIMEOUT
     try:
-        client.containers.get(body.name).stop(timeout=_STOP_TIMEOUT)
+        client.containers.get(body.name).stop(timeout=timeout)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"stop failed: {exc}")
     return {"ok": True}

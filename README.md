@@ -64,7 +64,7 @@ All endpoints require the header `X-API-Key: <API_KEY>`.
 | `POST` | `/fs/chmod` | `chmod -R <mode>` on a volume: `{"name": "vol_name", "mode": "755"}` |
 | `POST` | `/fs/chown` | `chown -R <user:group>` on a volume: `{"name": "vol_name", "owner": "1000:1000"}` |
 | `GET` | `/docker/users` | Map each volume to the containers using it: `{volume: [{name, status}]}` (needs the Docker socket; returns `{}` otherwise) |
-| `POST` | `/docker/container/stop` | Stop a container by name: `{"name": "container_name"}` (waits up to `CONTAINER_STOP_TIMEOUT`s for graceful shutdown; needs the Docker socket, else `503`) |
+| `POST` | `/docker/container/stop` | Stop a container by name: `{"name": "container_name", "timeout": 120}` (`timeout` optional — grace period in seconds before SIGKILL; falls back to `CONTAINER_STOP_TIMEOUT` when omitted; needs the Docker socket, else `503`) |
 | `POST` | `/docker/container/start` | Start a container by name: `{"name": "container_name"}` (needs the Docker socket, else `503`) |
 
 All path inputs are validated to stay within `VOLUME`.
