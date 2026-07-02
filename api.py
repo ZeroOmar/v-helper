@@ -4,6 +4,8 @@ import pwd
 import re
 import shutil
 import subprocess
+import threading
+import uuid
 import warnings
 from pathlib import Path
 from typing import Optional
@@ -20,7 +22,7 @@ app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
 # v-helper versions independently of v-shipper. v-shipper reads this via
 # /version and compares it against the latest v-helper GitHub release.
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
@@ -38,6 +40,13 @@ _STOP_TIMEOUT = int(os.environ.get("CONTAINER_STOP_TIMEOUT", "120"))
 # is rejected the same way at both ends. The owner spec is two tokens joined by ':'.
 _MODE_RE = re.compile(r"^[0-7]{3,4}$")
 _OWNER_TOKEN_RE = re.compile(r"^[0-9]+$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$")
+
+# Docker-style name (single path segment) — same shape as v-shipper's validate_name:
+# starts alnum, then alnum/_/./- , no '/' or '..', max 255. Used for the rsync module,
+# the source volume, and the local dest of a pull.
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
+# Rsync daemon host as `host` or `host:port` — hostnames, IPv4, no scheme/path.
+_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
 
 
 def _name_for_uid(uid: int) -> str:
@@ -279,7 +288,8 @@ def docker_users(x_api_key: str = Header(default="")):
     result = {}
     try:
         names = [e.name for e in _VOLUME.iterdir() if e.is_dir() and not e.name.startswith(".")]
-    except OSError:
+    except OSError as exc:
+        print(f"[DOCKER] cannot list volumes under {_VOLUME}: {exc}", flush=True)
         return result
     result = {name: [] for name in names}
 
@@ -315,6 +325,13 @@ def docker_users(x_api_key: str = Header(default="")):
             for c in containers:
                 if any(s == host_path or s.startswith(prefix) for s in c["sources"]):
                     result[name].append({"name": c["name"], "status": c["status"]})
+
+        matched = sum(1 for v in result.values() if v)
+        # A summary makes silent "no containers" cases diagnosable: if inspected>0
+        # but matched==0, the mount host-paths aren't matching DOCKER_VOLUMES_HOST_PATH
+        # ({}) — the usual cause is a wrong/unset DOCKER_VOLUMES_HOST_PATH.
+        print(f"[DOCKER] users: {len(names)} volumes, {len(containers)} containers inspected, "
+              f"{matched} volumes matched (host_path base={_DOCKER_VOLUMES_HOST_PATH})", flush=True)
     except Exception as exc:
         print(f"[WARNING] docker_users failed: {exc}", flush=True)
 
@@ -367,6 +384,157 @@ def container_start(body: ContainerAction, x_api_key: str = Header(default="")):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"start failed: {exc}")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# rsync pull jobs
+#
+# v-shipper cannot migrate directly between two remote pools: native rsync
+# refuses daemon-to-daemon transfers ("source and destination cannot both be
+# remote"). The workaround is for the DESTINATION v-helper to act as an rsync
+# CLIENT and pull from the source's rsync module into its own local VOLUME.
+#
+# A pull is long-running, so it runs in a background thread and v-shipper polls
+# for progress/logs. State is in-memory only (lost on restart) — same tradeoff
+# as v-shipper's own per-task log buffer.
+# ---------------------------------------------------------------------------
+
+_jobs = {}
+_jobs_lock = threading.Lock()
+
+
+class PullRequest(BaseModel):
+    source_host: str          # rsync daemon host, `host` or `host:port`
+    source_module: str        # rsync module name on the source
+    source_volume: str        # volume (single path segment) within the module
+    dest: str                 # local dest volume name (a child of VOLUME)
+    delete: bool = False       # add --delete (overwrite = complete replacement)
+    bwlimit: Optional[int] = None
+
+
+def _run_pull(job_id: str, cmd: list):
+    """Background worker: stream an rsync pull, recording progress/log/state."""
+    try:
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                if job is None:
+                    break
+                job["log"].append(line)
+                if "%" in line:
+                    try:
+                        percent = int(line.split("%")[0].split()[-1])
+                        job["percent"] = max(0, min(100, percent))
+                    except (ValueError, IndexError):
+                        pass
+        return_code = process.wait()
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is None:
+                return
+            job["returncode"] = return_code
+            if return_code == 0:
+                job["state"] = "done"
+                job["percent"] = 100
+            else:
+                job["state"] = "failed"
+                tail = " | ".join(job["log"][-5:]) or "rsync failed"
+                job["error"] = f"rsync exited with code {return_code}: {tail}"
+    except Exception as exc:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is not None:
+                job["state"] = "failed"
+                job["error"] = f"pull failed: {exc}"
+
+
+@app.post("/rsync/pull")
+def rsync_pull(body: PullRequest, x_api_key: str = Header(default="")):
+    """Start a background rsync pull FROM a remote module INTO a local volume.
+
+    Returns a job id immediately; poll /rsync/job/{id} and /rsync/job/{id}/log.
+    """
+    _auth(x_api_key)
+    if not _HOST_RE.match(body.source_host):
+        raise HTTPException(status_code=400, detail="Invalid source_host")
+    if not _NAME_RE.match(body.source_module):
+        raise HTTPException(status_code=400, detail="Invalid source_module")
+    if not _NAME_RE.match(body.source_volume):
+        raise HTTPException(status_code=400, detail="Invalid source_volume")
+    if body.bwlimit is not None and body.bwlimit < 0:
+        raise HTTPException(status_code=400, detail="Invalid bwlimit")
+
+    # Local dest confined to a child of VOLUME (reuses the traversal guard).
+    dest_path = str(_safe_child(body.dest)) + "/"
+    source_url = f"rsync://{body.source_host}/{body.source_module}/{body.source_volume}/"
+
+    # Flags mirror v-shipper's migration rsync; --info=progress2 gives an
+    # aggregate percentage that the worker parses for progress reporting.
+    cmd = ["rsync", "-av", "--perms", "--group", "--owner",
+           "--no-whole-file", "--inplace", "--info=progress2"]
+    if body.delete:
+        cmd.append("--delete")
+    if body.bwlimit:
+        cmd.append(f"--bwlimit={body.bwlimit}")
+    cmd.extend([source_url, dest_path])
+
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "state": "running",
+            "percent": 0,
+            "returncode": None,
+            "error": None,
+            "log": [f"rsync {' '.join(cmd)}"],
+        }
+    thread = threading.Thread(target=_run_pull, args=(job_id, cmd), daemon=True)
+    thread.start()
+    return {"job_id": job_id}
+
+
+def _job_status(job_id: str) -> dict:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {
+            "state": job["state"],
+            "percent": job["percent"],
+            "returncode": job["returncode"],
+            "error": job["error"],
+        }
+
+
+@app.get("/rsync/job/{job_id}")
+def rsync_job(job_id: str, x_api_key: str = Header(default="")):
+    _auth(x_api_key)
+    return _job_status(job_id)
+
+
+@app.get("/rsync/job/{job_id}/log")
+def rsync_job_log(job_id: str, offset: int = 0, x_api_key: str = Header(default="")):
+    """Return job status plus log lines from *offset* onward (incremental poll)."""
+    _auth(x_api_key)
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        log = job["log"]
+        start = offset if offset > 0 else 0
+        return {
+            "state": job["state"],
+            "percent": job["percent"],
+            "returncode": job["returncode"],
+            "error": job["error"],
+            "lines": log[start:],
+            "next_offset": len(log),
+        }
 
 
 @app.exception_handler(Exception)
