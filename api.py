@@ -22,7 +22,7 @@ app = FastAPI(title="v-helper", docs_url=None, redoc_url=None)
 
 # v-helper versions independently of v-shipper. v-shipper reads this via
 # /version and compares it against the latest v-helper GitHub release.
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 _API_KEY = os.environ.get("API_KEY", "")
 _VOLUME = Path(os.environ.get("VOLUME", "/data")).resolve()
@@ -418,6 +418,13 @@ def _run_pull(job_id: str, cmd: list):
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
+        # Store the handle so /rsync/job/{id}/cancel can terminate it.
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job is None:
+                process.terminate()
+                return
+            job["process"] = process
         for line in process.stdout:
             line = line.strip()
             if not line:
@@ -439,7 +446,11 @@ def _run_pull(job_id: str, cmd: list):
             if job is None:
                 return
             job["returncode"] = return_code
-            if return_code == 0:
+            # A cancel already set the terminal state and killed the process;
+            # don't overwrite it with a spurious "failed" from the kill signal.
+            if job["state"] == "cancelled":
+                pass
+            elif return_code == 0:
                 job["state"] = "done"
                 job["percent"] = 100
             else:
@@ -535,6 +546,37 @@ def rsync_job_log(job_id: str, offset: int = 0, x_api_key: str = Header(default=
             "lines": log[start:],
             "next_offset": len(log),
         }
+
+
+@app.post("/rsync/job/{job_id}/cancel")
+def rsync_job_cancel(job_id: str, x_api_key: str = Header(default="")):
+    """Stop a running rsync pull job (SIGTERM, escalating to SIGKILL).
+
+    Used by v-shipper when a remote→remote migration is cancelled. A job that
+    has already finished is left as-is. The destination volume may be left with
+    partial data — v-shipper removes it after cancelling."""
+    _auth(x_api_key)
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job["state"] != "running":
+            return {"state": job["state"]}
+        job["state"] = "cancelled"
+        job["error"] = "cancelled by request"
+        job["log"].append("cancelled by request")
+        process = job.get("process")
+
+    if process is not None and process.poll() is None:
+        try:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        except Exception:
+            pass
+    return {"state": "cancelled"}
 
 
 @app.exception_handler(Exception)

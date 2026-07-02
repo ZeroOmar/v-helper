@@ -68,8 +68,9 @@ All endpoints require the header `X-API-Key: <API_KEY>`.
 | `POST` | `/docker/container/stop` | Stop a container by name: `{"name": "container_name", "timeout": 120}` (`timeout` optional — grace period in seconds before SIGKILL; falls back to `CONTAINER_STOP_TIMEOUT` when omitted; needs the Docker socket, else `503`) |
 | `POST` | `/docker/container/start` | Start a container by name: `{"name": "container_name"}` (needs the Docker socket, else `503`) |
 | `POST` | `/rsync/pull` | Start a background rsync pull from a remote module into a local volume: `{"source_host": "host:port", "source_module": "mod", "source_volume": "vol", "dest": "vol", "delete": false, "bwlimit": null}` → `{"job_id": "..."}`. This v-helper runs the rsync *client*, so it powers remote→remote migrations (which native rsync can't do daemon-to-daemon). |
-| `GET` | `/rsync/job/{job_id}` | Pull job status: `{"state": "running\|done\|failed", "percent", "returncode", "error"}` (`404` if unknown) |
+| `GET` | `/rsync/job/{job_id}` | Pull job status: `{"state": "running\|done\|failed\|cancelled", "percent", "returncode", "error"}` (`404` if unknown) |
 | `GET` | `/rsync/job/{job_id}/log` | Job status plus log lines from `?offset=N` onward: `{..., "lines": [...], "next_offset": N}` — poll incrementally with the returned `next_offset` |
+| `POST` | `/rsync/job/{job_id}/cancel` | Stop a running pull job (SIGTERM→SIGKILL) → `{"state": "cancelled"}` (`404` if unknown; a finished job is returned unchanged). Used when a remote→remote migration is cancelled; the destination volume may be left partial and is cleaned up by v-shipper. |
 
 For `/rsync/pull` to reach the source, this host must be able to connect to the source's rsync daemon on port 873, and the source's rsync `hosts allow` must include this host. Pull-job state is in-memory only (lost on restart).
 
